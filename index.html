@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Interactive toy model of a tumor growing, spreading through a blood vessel, and developing drug resistance.">
+<style>html{-webkit-text-size-adjust:100%}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Tumor Spread Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: an H&E-stained microscope slide on the left, an instrument panel on the right, the disease timeline underneath */
+:root{
+  --bg:#F4F2F7; --surface:#FFFFFF; --fg:#1F1A28; --muted:#655D73; --line:#DDD6E6;
+  --accent:#5B3A92; --accent-soft:#ECE5F7; --res:#127A78; --res-soft:#DDF0EF;
+  --vessel:#B3313F; --drug:#B9771A; --drug-soft:#F7EBD7; --slide-frame:#2A2331;
+  --font-display:"Familjen Grotesk","Helvetica Neue",Arial,sans-serif;
+  --font-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141219; --surface:#1D1A24; --fg:#ECE8F3; --muted:#A39BB2; --line:#322C3D;
+  --accent:#B59BE8; --accent-soft:#2C2440; --res:#4FC6C0; --res-soft:#173332;
+  --vessel:#E56B76; --drug:#E3A64B; --drug-soft:#3A2C16; --slide-frame:#0C0A10; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141219; --surface:#1D1A24; --fg:#ECE8F3; --muted:#A39BB2; --line:#322C3D;
+  --accent:#B59BE8; --accent-soft:#2C2440; --res:#4FC6C0; --res-soft:#173332;
+  --vessel:#E56B76; --drug:#E3A64B; --drug-soft:#3A2C16; --slide-frame:#0C0A10; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:15px;line-height:1.5;
+  padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto;display:grid;gap:20px}
+header{display:grid;gap:6px}
+.eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--font-display);font-weight:700;font-size:clamp(28px,4vw,40px);line-height:1.05;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.lede{margin:0;color:var(--muted);max-width:68ch}
+h2{font-family:var(--font-display);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:0;color:var(--muted)}
+
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:20px;align-items:start}
+@media (max-width:880px){.stage{grid-template-columns:minmax(0,1fr)}}
+
+figure{margin:0;display:grid;gap:10px;min-width:0}
+.slide{position:relative;background:var(--slide-frame);border-radius:12px;padding:10px}
+canvas#slide{display:block;width:100%;height:auto;aspect-ratio:3/2;max-width:100%;border-radius:6px;cursor:crosshair;background:#EDB9C7}
+.chip-chemo{position:absolute;top:20px;right:20px;font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  background:var(--drug);color:#fff;padding:4px 9px;border-radius:999px}
+figcaption{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted)}
+.key{display:inline-flex;align-items:center;gap:6px}
+.sw{width:11px;height:11px;border-radius:50%;flex:none;border:1px solid rgba(0,0,0,.15)}
+
+.panel{display:grid;gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px;min-width:0}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button{font:inherit;font-weight:600;font-size:14px;border-radius:8px;padding:9px 12px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#play{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+#chemo{grid-column:1/-1;border-color:var(--drug);color:var(--drug);background:var(--drug-soft)}
+#chemo[aria-pressed="true"]{background:var(--drug);color:#fff}
+.field{display:grid;gap:4px}
+.field label{display:flex;justify-content:space-between;font-size:13px;font-weight:500}
+.field output{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.hint{font-size:12.5px;color:var(--muted);margin:0}
+
+dl.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin:0}
+dl.stats div{display:grid;gap:1px}
+dt{font-size:12px;color:var(--muted)}
+dd{margin:0;font-family:var(--font-mono);font-size:19px;font-weight:500;font-variant-numeric:tabular-nums}
+dd small{font-size:12px;color:var(--muted);font-weight:400}
+
+.sites{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.sites li{display:grid;grid-template-columns:84px minmax(0,1fr) 26px;align-items:center;gap:8px;font-size:13.5px;border-radius:6px;padding:2px 4px;transition:background .6s}
+.sites li.flash{background:var(--accent-soft);transition:none}
+.dots{display:flex;flex-wrap:wrap;gap:3px;min-height:9px}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--accent)}
+.dots i.r{background:var(--res)}
+.sites b{font-family:var(--font-mono);font-weight:500;text-align:right;font-variant-numeric:tabular-nums}
+.ctc-line{font-size:12.5px;color:var(--muted);margin:0;font-variant-numeric:tabular-nums}
+
+.timeline{display:grid;gap:16px}
+ol.phases{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;counter-reset:ph}
+@media (max-width:760px){ol.phases{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+ol.phases li{counter-increment:ph;border-top:3px solid var(--line);padding-top:8px;display:grid;align-content:start;gap:2px;color:var(--muted);transition:border-color .4s,color .4s}
+ol.phases li::before{content:counter(ph);font-family:var(--font-mono);font-size:11px}
+ol.phases li strong{font-size:14px;font-weight:600}
+ol.phases li span{font-size:12.5px;line-height:1.4}
+ol.phases li.on{border-color:var(--accent);color:var(--fg)}
+ol.phases li.on span{color:var(--muted)}
+
+.chart-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline}
+.chart-key{display:flex;gap:14px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+.chart-key .ln{width:16px;height:3px;border-radius:2px;display:inline-block;vertical-align:middle;margin-right:5px}
+.chart-wrap{overflow-x:auto}
+svg#chart{display:block;width:100%;min-width:560px;height:auto}
+svg text{font-family:var(--font-mono);font-size:11px;fill:var(--muted)}
+.grid-l{stroke:var(--line);stroke-width:1}
+.a-live{fill:var(--accent);fill-opacity:.14}
+.l-live{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round}
+.a-res{fill:var(--res);fill-opacity:.22}
+.l-res{fill:none;stroke:var(--res);stroke-width:2;stroke-linejoin:round}
+.band{fill:var(--drug);fill-opacity:.12}
+.band-t{fill:var(--drug)}
+
+footer{font-size:12.5px;color:var(--muted);max-width:80ch}
+footer p{margin:0 0 6px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Canvis · interactive demo</div>
+    <h1>Tumor Spread Simulator</h1>
+    <p class="lede">A toy model of a tumor seen on a stained tissue slide. Watch it grow, starve in the middle, reach a blood vessel and send cells to other organs. Try chemotherapy and see what survives.</p>
+  </header>
+
+  <section class="stage">
+    <figure>
+      <div class="slide">
+        <canvas id="slide" width="720" height="480" aria-label="Simulated tissue slide showing a growing tumor next to a capillary"></canvas>
+        <span class="chip-chemo" id="chemoChip" hidden>Chemotherapy running</span>
+      </div>
+      <figcaption>
+        <span class="key"><i class="sw" style="background:#6A4A9C"></i>Dividing tumor cell</span>
+        <span class="key"><i class="sw" style="background:#A08BC4"></i>Starved, not dividing</span>
+        <span class="key"><i class="sw" style="background:#EBC3CE"></i>Dead (necrotic)</span>
+        <span class="key"><i class="sw" style="background:#2A9C98"></i>Drug-resistant clone</span>
+        <span class="key"><i class="sw" style="background:#4A1F7A;box-shadow:0 0 0 2px #fff inset"></i>Cell in bloodstream</span>
+        <span class="key"><i class="sw" style="background:#C8323F"></i>Red blood cell</span>
+      </figcaption>
+    </figure>
+
+    <aside class="panel">
+      <div class="card">
+        <h2>Controls</h2>
+        <div class="btns">
+          <button id="play" type="button">Pause</button>
+          <button id="reset" type="button">Reset</button>
+          <button id="chemo" type="button" aria-pressed="false">Start chemotherapy</button>
+        </div>
+        <div class="field">
+          <label for="growth">Growth rate <output id="growthOut" for="growth"></output></label>
+          <input id="growth" type="range" min="0.02" max="0.25" step="0.01" value="0.08">
+        </div>
+        <div class="field">
+          <label for="invasion">Invasiveness <output id="invOut" for="invasion"></output></label>
+          <input id="invasion" type="range" min="0" max="1" step="0.01" value="0.35">
+        </div>
+        <div class="field">
+          <label for="speed">Playback speed <output id="speedOut" for="speed"></output></label>
+          <input id="speed" type="range" min="4" max="40" step="1" value="14">
+        </div>
+        <p class="hint">Click anywhere on the slide to plant another tumor.</p>
+      </div>
+
+      <div class="card">
+        <h2>Primary tumor</h2>
+        <dl class="stats">
+          <div><dt>Day</dt><dd id="sDay">0</dd></div>
+          <div><dt>Diameter</dt><dd id="sDiam">0 <small>mm</small></dd></div>
+          <div><dt>Living cells</dt><dd id="sLive">0</dd></div>
+          <div><dt>Necrotic</dt><dd id="sNec">0<small>%</small></dd></div>
+          <div><dt>Resistant</dt><dd id="sRes">0<small>%</small></dd></div>
+          <div><dt>Status</dt><dd id="sStatus" style="font-size:14px;padding-top:4px">Growing</dd></div>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h2>Distant spread</h2>
+        <ul class="sites" id="sites"></ul>
+        <p class="ctc-line" id="ctcLine">No cells in the bloodstream yet.</p>
+      </div>
+    </aside>
+  </section>
+
+  <section class="card timeline">
+    <h2>Progression</h2>
+    <ol class="phases" id="phases">
+      <li data-k="growth"><strong>Primary growth</strong><span>A mutated cell divides into a small mass.</span></li>
+      <li data-k="core"><strong>Necrotic core</strong><span>Cells deep inside run out of oxygen and die.</span></li>
+      <li data-k="vessel"><strong>Vessel contact</strong><span>The tumor edge reaches a capillary.</span></li>
+      <li data-k="ctc"><strong>Intravasation</strong><span>Tumor cells break into the bloodstream.</span></li>
+      <li data-k="colony"><strong>Distant colony</strong><span>A circulating cell survives and seeds a new organ.</span></li>
+    </ol>
+    <div class="chart-head">
+      <h2>Living tumor cells over time</h2>
+      <div class="chart-key">
+        <span><i class="ln" style="background:var(--accent)"></i>All living cells</span>
+        <span><i class="ln" style="background:var(--res)"></i>Resistant clone</span>
+        <span><i class="ln" style="background:var(--drug);opacity:.5;height:10px"></i>Chemotherapy</span>
+      </div>
+    </div>
+    <div class="chart-wrap"><svg id="chart" viewBox="0 0 960 230" role="img" aria-label="Line chart of living tumor cells by day"></svg></div>
+  </section>
+
+  <footer>
+    <p><strong>How it works.</strong> The slide is a 120 × 80 grid where one step is 50 µm and one tick is 6 hours. Each tumor cell with free space next to it divides with the chosen growth rate. Cells with no free neighbours for a long time die, which forms the pale core. Edge cells sometimes crawl away (invasiveness). Cells touching the vessel can enter the blood; one in four that reach the end of the vessel forms a colony. Each division has a 0.3% chance of producing a drug-resistant cell. Chemotherapy kills dividing, non-resistant cells.</p>
+    <p>This is an illustration with made-up rates, not a clinical model.</p>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const W = 120, H = 80, CS = 6, N = W * H, PW = W * CS, PH = H * CS;
+  const EMPTY = 0, LIVE = 1, NEC = 2, VES = 3;
+  const NEC_T = 70, QUI_T = 6, TICKS_PER_DAY = 4;
+  const NB = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
+  const SITES = [
+    { k: 'ln', name: 'Lymph node', w: 0.45 },
+    { k: 'lung', name: 'Lung', w: 0.2 },
+    { k: 'liver', name: 'Liver', w: 0.2 },
+    { k: 'bone', name: 'Bone', w: 0.15 },
+  ];
+  const rnd = Math.random;
+  const $ = id => document.getElementById(id);
+  const cv = $('slide'), ctx = cv.getContext('2d');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = PW * dpr; cv.height = PH * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const growthEl = $('growth'), invEl = $('invasion'), speedEl = $('speed');
+  const vx = y => 90 + 6 * Math.sin(y / 11) + 3 * Math.sin(y / 5.3 + 1);
+
+  let grid, clone, starve, born, tick, chemo, ctcs, rbcs, released, colonies, history, bands, phases, counts;
+  const freeBuf = new Int32Array(8);
+
+  // ---------- background tissue (drawn once) ----------
+  const bg = document.createElement('canvas');
+  function buildBackground() {
+    bg.width = cv.width; bg.height = cv.height;
+    const b = bg.getContext('2d');
+    b.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const g = b.createRadialGradient(PW * .4, PH * .45, 40, PW * .5, PH * .5, PW * .75);
+    g.addColorStop(0, '#F7D6DE'); g.addColorStop(1, '#ECB6C5');
+    b.fillStyle = g; b.fillRect(0, 0, PW, PH);
+    // collagen fibres
+    for (let i = 0; i < 420; i++) {
+      b.strokeStyle = rnd() < .55 ? 'rgba(220,135,162,.45)' : 'rgba(255,238,243,.6)';
+      b.lineWidth = .6 + rnd() * 1.5;
+      const x = rnd() * PW, y = rnd() * PH, a = .35 + (rnd() - .5) * .9, L = 30 + rnd() * 70;
+      b.beginPath(); b.moveTo(x, y);
+      b.bezierCurveTo(x + Math.cos(a) * L * .33, y + Math.sin(a) * L * .33 + (rnd() - .5) * 14,
+        x + Math.cos(a) * L * .66, y + Math.sin(a) * L * .66 + (rnd() - .5) * 14,
+        x + Math.cos(a) * L, y + Math.sin(a) * L);
+      b.stroke();
+    }
+    // healthy stromal nuclei
+    b.fillStyle = 'rgba(104,70,148,.62)';
+    for (let i = 0; i < 260; i++) {
+      b.beginPath();
+      b.ellipse(rnd() * PW, rnd() * PH, 2.2 + rnd(), .9 + rnd() * .5, .35 + (rnd() - .5) * 1.2, 0, Math.PI * 2);
+      b.fill();
+    }
+    // capillary
+    const path = () => { b.beginPath(); for (let y = -2; y <= H + 2; y += .5) { const X = vx(y) * CS, Y = y * CS; y === -2 ? b.moveTo(X, Y) : b.lineTo(X, Y); } };
+    b.lineCap = 'round'; b.lineJoin = 'round';
+    path(); b.strokeStyle = '#C46A80'; b.lineWidth = 28; b.stroke();
+    path(); b.strokeStyle = '#FBE9EE'; b.lineWidth = 21; b.stroke();
+    b.fillStyle = 'rgba(92,56,140,.8)';
+    for (let y = 1; y < H; y += 2.6) {
+      const X = vx(y) * CS, Y = y * CS, side = (Math.round(y / 2.6) % 2 ? 1 : -1);
+      b.beginPath(); b.ellipse(X + side * 11.5, Y, 1.2, 3.2, 0, 0, Math.PI * 2); b.fill();
+    }
+  }
+
+  // ---------- model ----------
+  function init() {
+    grid = new Uint8Array(N); clone = new Uint8Array(N); starve = new Uint16Array(N); born = new Uint32Array(N);
+    tick = 0; chemo = false; ctcs = []; released = 0; history = []; bands = [];
+    colonies = { ln: [], lung: [], liver: [], bone: [] };
+    phases = { growth: false, core: false, vessel: false, ctc: false, colony: false };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+      if (Math.abs(x + .5 - vx(y + .5)) < 2.2) grid[y * W + x] = VES;
+    rbcs = Array.from({ length: 30 }, () => ({ y: rnd() * H, off: (rnd() - .5) * 2.4, s: .8 + rnd() * .5 }));
+    seed(40, 40);
+    for (let i = 0; i < 110; i++) step();
+    setChemo(false);
+  }
+
+  function seed(cx, cy) {
+    for (let y = cy - 2; y <= cy + 2; y++) for (let x = cx - 2; x <= cx + 2; x++) {
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      if ((x - cx) ** 2 + (y - cy) ** 2 > 4.5) continue;
+      const i = y * W + x;
+      if (grid[i] === VES) continue;
+      grid[i] = LIVE; clone[i] = 0; starve[i] = 0; born[i] = tick;
+    }
+    phases.growth = true;
+  }
+
+  function step() {
+    tick++;
+    const gr = +growthEl.value, inv = +invEl.value, fwd = tick & 1;
+    let contact = false;
+    for (let k = 0; k < N; k++) {
+      const idx = fwd ? k : N - 1 - k;
+      const s = grid[idx];
+      if (s === NEC) { if (rnd() < .003) grid[idx] = EMPTY; continue; }
+      if (s !== LIVE || born[idx] === tick) continue;
+      const x = idx % W, y = (idx / W) | 0;
+      let nf = 0, ves = false, edge = false;
+      for (let j = 0; j < 8; j++) {
+        const nx = x + NB[j][0], ny = y + NB[j][1];
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) { edge = true; continue; }
+        const n = ny * W + nx, g = grid[n];
+        if (g === EMPTY) freeBuf[nf++] = n; else if (g === VES) ves = true;
+      }
+      if (nf > 0 || edge) starve[idx] = 0;
+      else if (++starve[idx] > NEC_T) { grid[idx] = NEC; phases.core = true; continue; }
+      if (chemo && !clone[idx]) {
+        const pk = nf > 0 ? .25 : (starve[idx] < 20 ? .06 : .01);
+        if (rnd() < pk) { grid[idx] = EMPTY; starve[idx] = 0; continue; }
+      }
+      if (ves) { contact = true; if (rnd() < .012) spawnCTC(x, y, clone[idx]); }
+      if (nf === 0) continue;
+      if (rnd() < gr) {
+        const t = freeBuf[(rnd() * nf) | 0];
+        grid[t] = LIVE; clone[t] = clone[idx] || (rnd() < .003 ? 1 : 0); starve[t] = 0; born[t] = tick;
+      }
+      if (rnd() < inv * .003) {
+        const a = rnd() * Math.PI * 2, d = 3 + rnd() * 4;
+        const tx = Math.round(x + Math.cos(a) * d), ty = Math.round(y + Math.sin(a) * d);
+        if (tx >= 0 && ty >= 0 && tx < W && ty < H) {
+          const t = ty * W + tx;
+          if (grid[t] === EMPTY) { grid[t] = LIVE; clone[t] = clone[idx]; starve[t] = 0; born[t] = tick; grid[idx] = EMPTY; }
+        }
+      }
+    }
+    if (contact) phases.vessel = true;
+    if (tick % 2 === 0) record();
+  }
+
+  function spawnCTC(x, y, c) {
+    if (ctcs.length > 40) return;
+    ctcs.push({ y: y + .5, off: (rnd() - .5) * 1.6, c });
+    released++; phases.ctc = true;
+  }
+
+  function stats() {
+    let live = 0, res = 0, nec = 0;
+    for (let i = 0; i < N; i++) {
+      const g = grid[i];
+      if (g === LIVE) { live++; if (clone[i]) res++; } else if (g === NEC) nec++;
+    }
+    return { live, res, nec };
+  }
+
+  function record() {
+    counts = stats();
+    history.push({ t: tick, live: counts.live, res: counts.res });
+    if (history.length > 500) history = history.filter((_, i) => i % 2 === 0 || i === history.length - 1);
+    chartDirty = true;
+  }
+
+  function colonize(c) {
+    let r = rnd(), site = SITES[0];
+    for (const s of SITES) { if (r < s.w) { site = s; break; } r -= s.w; }
+    colonies[site.k].push(c);
+    phases.colony = true;
+    const li = document.querySelector(`.sites li[data-k="${site.k}"]`);
+    if (li) { li.classList.add('flash'); requestAnimationFrame(() => setTimeout(() => li.classList.remove('flash'), 60)); }
+    sitesDirty = true;
+  }
+
+  function moveParticles(dt, f) {
+    for (const r of rbcs) { r.y += dt * 9 * r.s * f; if (r.y > H + 1) { r.y -= H + 2; r.off = (rnd() - .5) * 2.4; } }
+    for (let i = ctcs.length - 1; i >= 0; i--) {
+      const c = ctcs[i]; c.y += dt * 5 * f;
+      if (c.y > H + 1) { ctcs.splice(i, 1); if (rnd() < .25) colonize(c.c); }
+    }
+  }
+
+  // ---------- drawing ----------
+  const STYLE = {
+    s0: ['#6A4A9C', '#3A1F66'], s1: ['#A08BC4', '#6E559A'],
+    r0: ['#2A9C98', '#0E5C5B'], r1: ['#86C6C2', '#3F8784'],
+  };
+  function fillDots(list, color, r, dx = 0, dy = 0) {
+    if (!list.length) return;
+    ctx.fillStyle = color; ctx.beginPath();
+    for (const i of list) {
+      const cx = (i % W + .5) * CS + dx, cy = (((i / W) | 0) + .5) * CS + dy;
+      ctx.moveTo(cx + r, cy); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+  function draw() {
+    ctx.drawImage(bg, 0, 0, PW, PH);
+    const B = { s0: [], s1: [], r0: [], r1: [], nec: [], speck: [] };
+    for (let i = 0; i < N; i++) {
+      const g = grid[i];
+      if (g === LIVE) B[(clone[i] ? 'r' : 's') + (starve[i] > QUI_T ? '1' : '0')].push(i);
+      else if (g === NEC) { B.nec.push(i); if (i % 7 === 0) B.speck.push(i); }
+    }
+    fillDots(B.nec, '#EBC3CE', CS * .66);
+    fillDots(B.speck, '#A9789A', .9, 1, -1);
+    for (const k of ['s1', 'r1', 's0', 'r0']) {
+      fillDots(B[k], STYLE[k][0], CS * .64);
+      fillDots(B[k], STYLE[k][1], CS * .3);
+    }
+    // red blood cells
+    for (const r of rbcs) {
+      const X = (vx(r.y) + r.off) * CS, Y = r.y * CS;
+      ctx.fillStyle = '#C8323F'; ctx.beginPath(); ctx.ellipse(X, Y, 3, 2.3, .3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#E0656F'; ctx.beginPath(); ctx.ellipse(X, Y, 1.3, 1, .3, 0, Math.PI * 2); ctx.fill();
+    }
+    // circulating tumor cells
+    for (const c of ctcs) {
+      const X = (vx(c.y) + c.off) * CS, Y = c.y * CS;
+      ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(X, Y, 5.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = c.c ? '#127A78' : '#4A1F7A'; ctx.beginPath(); ctx.arc(X, Y, 3.8, 0, Math.PI * 2); ctx.fill();
+    }
+    // scale bar: 1 mm = 20 grid steps
+    const sx = 16, sy = PH - 16, len = 20 * CS;
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = 'rgba(31,26,40,.75)'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + len, sy); ctx.stroke();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(sx + 1, sy); ctx.lineTo(sx + len - 1, sy); ctx.stroke();
+    ctx.font = '500 11px "IBM Plex Mono", ui-monospace, monospace';
+    ctx.textBaseline = 'alphabetic';
+    label('1 mm', sx, sy - 8);
+    label(`DAY ${(tick / TICKS_PER_DAY).toFixed(0)}  ·  H&E ×100`, 12, 24);
+  }
+  function label(t, x, y) {
+    const w = ctx.measureText(t).width;
+    ctx.fillStyle = 'rgba(31,26,40,.72)'; ctx.beginPath(); ctx.roundRect(x - 5, y - 13, w + 10, 18, 4); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillText(t, x, y);
+  }
+
+  // ---------- chart ----------
+  let chartDirty = true, sitesDirty = true;
+  function niceStep(span, n) {
+    const raw = span / n, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+  }
+  function renderChart() {
+    const Wc = 960, Hc = 230, ml = 50, mr = 14, mt = 16, mb = 28;
+    const tMax = Math.max(200, tick);
+    const peak = Math.max(100, ...history.map(h => h.live));
+    const yStep = niceStep(peak, 4), yMax = Math.ceil(peak * 1.05 / yStep) * yStep;
+    const X = t => ml + t / tMax * (Wc - ml - mr), Y = v => mt + (1 - v / yMax) * (Hc - mt - mb);
+    let s = '';
+    for (const b of bands) {
+      const x0 = X(b.a), x1 = X(b.b ?? tick);
+      s += `<rect class="band" x="${x0}" y="${mt}" width="${Math.max(1, x1 - x0)}" height="${Hc - mt - mb}"/>`;
+      s += `<text class="band-t" x="${x0 + 4}" y="${mt + 12}">chemo</text>`;
+    }
+    for (let v = 0; v <= yMax; v += yStep) {
+      s += `<line class="grid-l" x1="${ml}" x2="${Wc - mr}" y1="${Y(v)}" y2="${Y(v)}"/>`;
+      s += `<text x="${ml - 8}" y="${Y(v) + 4}" text-anchor="end">${v >= 1000 ? (v / 1000) + 'k' : v}</text>`;
+    }
+    const dMax = tMax / TICKS_PER_DAY, dStep = niceStep(dMax, 6);
+    for (let d = 0; d <= dMax + 1e-9; d += dStep)
+      s += `<text x="${X(d * TICKS_PER_DAY)}" y="${Hc - 8}" text-anchor="middle">${d === 0 ? 'day 0' : d}</text>`;
+    if (history.length > 1) {
+      const pts = k => history.map(h => `${X(h.t).toFixed(1)},${Y(h[k]).toFixed(1)}`).join(' ');
+      const base = `${X(history[history.length - 1].t).toFixed(1)},${Y(0)} ${X(history[0].t).toFixed(1)},${Y(0)}`;
+      s += `<polygon class="a-live" points="${pts('live')} ${base}"/><polyline class="l-live" points="${pts('live')}"/>`;
+      s += `<polygon class="a-res" points="${pts('res')} ${base}"/><polyline class="l-res" points="${pts('res')}"/>`;
+      const last = history[history.length - 1];
+      s += `<circle cx="${X(last.t)}" cy="${Y(last.live)}" r="3.5" style="fill:var(--accent)"/>`;
+    }
+    $('chart').innerHTML = s;
+  }
+
+  // ---------- UI ----------
+  function renderSites() {
+    $('sites').innerHTML = SITES.map(s => {
+      const list = colonies[s.k], shown = list.slice(0, 14);
+      return `<li data-k="${s.k}"><span>${s.name}</span><span class="dots">${shown.map(c => `<i class="${c ? 'r' : ''}"></i>`).join('')}</span><b>${list.length}</b></li>`;
+    }).join('');
+  }
+  const set = (id, html) => { const el = $(id); if (el.innerHTML !== html) el.innerHTML = html; };
+  function updateUI() {
+    const c = counts || stats();
+    const tumorSites = c.live + c.nec;
+    set('sDay', (tick / TICKS_PER_DAY).toFixed(0));
+    set('sDiam', `${(2 * Math.sqrt(tumorSites / Math.PI) * .05).toFixed(2)} <small>mm</small>`);
+    set('sLive', c.live.toLocaleString('en-US'));
+    set('sNec', `${tumorSites ? Math.round(100 * c.nec / tumorSites) : 0}<small>%</small>`);
+    set('sRes', `${c.live ? (100 * c.res / c.live).toFixed(c.res && c.res * 100 / c.live < 10 ? 1 : 0) : 0}<small>%</small>`);
+    set('sStatus', c.live === 0 ? 'Eradicated' : chemo ? (c.res / c.live > .5 ? 'Resistant regrowth' : 'Under treatment') : phases.colony ? 'Metastatic' : phases.ctc ? 'Spreading' : 'Growing');
+    const seeded = SITES.reduce((n, s) => n + colonies[s.k].length, 0);
+    set('ctcLine', released ? `${released} cells entered the blood · ${seeded} formed colonies` : 'No cells in the bloodstream yet.');
+    document.querySelectorAll('#phases li').forEach(li => li.classList.toggle('on', !!phases[li.dataset.k]));
+    $('growthOut').textContent = `${Math.round(growthEl.value * 100)}% per tick`;
+    $('invOut').textContent = +invEl.value < .2 ? 'Low' : +invEl.value < .6 ? 'Medium' : 'High';
+    $('speedOut').textContent = `${speedEl.value} ticks/s`;
+    if (chartDirty) { renderChart(); chartDirty = false; }
+    if (sitesDirty) { renderSites(); sitesDirty = false; }
+  }
+
+  function setChemo(on) {
+    if (on === chemo && bands) { /* keep state */ }
+    if (on && !chemo) bands.push({ a: tick, b: null });
+    if (!on && chemo && bands.length) bands[bands.length - 1].b = tick;
+    chemo = on;
+    $('chemo').setAttribute('aria-pressed', String(on));
+    $('chemo').textContent = on ? 'Stop chemotherapy' : 'Start chemotherapy';
+    $('chemoChip').hidden = !on;
+    chartDirty = true;
+  }
+
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let playing = !reduce, acc = 0, last = performance.now();
+  const setPlay = p => { playing = p; $('play').textContent = p ? 'Pause' : 'Play'; };
+  $('play').addEventListener('click', () => setPlay(!playing));
+  $('reset').addEventListener('click', () => { init(); counts = stats(); chartDirty = sitesDirty = true; });
+  $('chemo').addEventListener('click', () => setChemo(!chemo));
+  [growthEl, invEl, speedEl].forEach(el => el.addEventListener('input', updateUI));
+  cv.addEventListener('click', e => {
+    const r = cv.getBoundingClientRect();
+    const x = Math.floor((e.clientX - r.left) / r.width * W), y = Math.floor((e.clientY - r.top) / r.height * H);
+    seed(x, y);
+  });
+
+  function frame(now) {
+    const dt = Math.min(.1, (now - last) / 1000); last = now;
+    if (playing) {
+      const tps = +speedEl.value;
+      acc += dt * tps;
+      let n = 0;
+      while (acc >= 1 && n < 6) { step(); acc -= 1; n++; }
+      if (n === 6) acc = 0;
+      moveParticles(dt, tps / 14);
+    }
+    draw(); updateUI();
+    requestAnimationFrame(frame);
+  }
+
+  buildBackground();
+  init();
+  counts = stats();
+  setPlay(playing);
+  requestAnimationFrame(frame);
+  window.canvisSim = { step, stats, get tick() { return tick; }, get phases() { return phases; }, setChemo };
+})();
+</script>
+</body>
+</html>
